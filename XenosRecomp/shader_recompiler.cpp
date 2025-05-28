@@ -1261,6 +1261,17 @@ void ShaderRecompiler::recompile(const uint8_t* shaderData, const std::string_vi
 
     out += '\n';
 
+    // Define all possible boolean registers that might be used
+    for (uint32_t i = 0; i < 256; i++)
+    {
+        if (boolConstants.find(i) == boolConstants.end())
+        {
+            println("#define b{} ((g_Booleans >> {}) & 1)", i, i + (isPixelShader ? 16 : 0));
+        }
+    }
+
+    out += '\n';
+
     const auto shader = reinterpret_cast<const Shader*>(shaderData + shaderContainer->shaderOffset);
 
     out += "#ifndef __spirv__\n";
