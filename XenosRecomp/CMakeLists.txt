@@ -40,7 +40,7 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "Ap
 endif()
 
 if (WIN32)
-    target_compile_definitions(XenosRecomp PRIVATE _CRT_SECURE_NO_WARNINGS)
+    target_compile_definitions(XenosRecomp PRIVATE _CRT_SECURE_NO_WARNINGS UNLEASHED_RECOMP)
     add_custom_command(TARGET XenosRecomp POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_RUNTIME_DLLS:XenosRecomp> $<TARGET_FILE_DIR:XenosRecomp>
         COMMAND_EXPAND_LISTS

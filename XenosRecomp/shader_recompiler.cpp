@@ -1,5 +1,6 @@
 #include "shader_recompiler.h"
 #include "shader_common.h"
+#include <set>
 
 static constexpr char SWIZZLES[] = 
 { 
@@ -1191,6 +1192,11 @@ void ShaderRecompiler::recompile(const uint8_t* shaderData, const std::string_vi
 
     println("cbuffer {}ShaderConstants : register(b{}, space4)", isPixelShader ? "Pixel" : "Vertex", isPixelShader ? 1 : 0);
     out += "{\n";
+    
+    // Track which registers are used to detect overlaps
+    std::set<uint32_t> usedRegisters;
+    std::unordered_map<std::string, uint32_t> remappedRegisters;
+    uint32_t nextFreeRegister = 0;
 
     for (uint32_t i = 0; i < constantTableContainer->constantTable.constants; i++)
     {
@@ -1200,13 +1206,57 @@ void ShaderRecompiler::recompile(const uint8_t* shaderData, const std::string_vi
         if (constantInfo->registerSet == RegisterSet::Float4)
         {
             const char* constantName = reinterpret_cast<const char*>(constantTableData + constantInfo->name);
+            uint32_t registerIndex = constantInfo->registerIndex;
+
+            // Check for register overlap
+            bool hasOverlap = false;
+            for (uint32_t j = 0; j < constantInfo->registerCount; j++)
+            {
+                if (usedRegisters.find(registerIndex + j) != usedRegisters.end())
+                {
+                    hasOverlap = true;
+                    break;
+                }
+            }
+
+            if (hasOverlap)
+            {
+                // Find next free register range
+                while (true)
+                {
+                    bool foundSpace = true;
+                    for (uint32_t j = 0; j < constantInfo->registerCount; j++)
+                    {
+                        if (usedRegisters.find(nextFreeRegister + j) != usedRegisters.end())
+                        {
+                            foundSpace = false;
+                            break;
+                        }
+                    }
+                    if (foundSpace)
+                    {
+                        registerIndex = nextFreeRegister;
+                        remappedRegisters[constantName] = registerIndex;
+                        break;
+                    }
+                    nextFreeRegister++;
+                }
+            }
+
+            // Mark registers as used
+            for (uint32_t j = 0; j < constantInfo->registerCount; j++)
+            {
+                usedRegisters.insert(registerIndex + j);
+                if (registerIndex + j >= nextFreeRegister)
+                    nextFreeRegister = registerIndex + j + 1;
+            }
 
             print("\tfloat4 {}", constantName);
 
             if (constantInfo->registerCount > 1)
                 print("[{}]", constantInfo->registerCount.get());
 
-            println(" : packoffset(c{});", constantInfo->registerIndex.get());
+            println(" : packoffset(c{});", registerIndex);
 
             if (constantInfo->registerCount > 1)
             {
@@ -1245,6 +1295,18 @@ void ShaderRecompiler::recompile(const uint8_t* shaderData, const std::string_vi
     out += "};\n\n";
 
     out += "#endif\n";
+
+    // Define missing samplers that are referenced in the shader
+    for (uint32_t i = 0; i < 16; i++)
+    {
+        if (samplers.find(i) == samplers.end())
+        {
+            println("#define s{}_Texture2DDescriptorIndex 0", i);
+            println("#define s{}_Texture3DDescriptorIndex 0", i);
+            println("#define s{}_TextureCubeDescriptorIndex 0", i);
+            println("#define s{}_SamplerDescriptorIndex 0", i);
+        }
+    }
 
     for (uint32_t i = 0; i < constantTableContainer->constantTable.constants; i++)
     {

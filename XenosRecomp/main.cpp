@@ -71,6 +71,7 @@ int main(int argc, char** argv)
     {
         std::vector<std::unique_ptr<uint8_t[]>> files;
         std::map<XXH64_hash_t, RecompiledShader> shaders;
+        std::map<XXH64_hash_t, std::string> srcFiles;
 
         for (auto& file : std::filesystem::recursive_directory_iterator(input))
         {
@@ -94,6 +95,7 @@ int main(int argc, char** argv)
                     shaderContainer->field20 == 0)
                 {
                     XXH64_hash_t hash = XXH3_64bits(shaderContainer, dataSize);
+                    printf("0x%llX,%s\n", hash, file.path().string().c_str());
                     auto shader = shaders.try_emplace(hash);
                     if (shader.second)
                     {
@@ -129,15 +131,26 @@ int main(int argc, char** argv)
 
 #ifdef XENOS_RECOMP_DXIL
                 shader.dxil = dxcCompiler.compile(recompiler.out, recompiler.isPixelShader, recompiler.specConstantsMask != 0, false);
-                assert(shader.dxil != nullptr);
-                assert(*(reinterpret_cast<uint32_t *>(shader.dxil->GetBufferPointer()) + 1) != 0 && "DXIL was not signed properly!");
+               // assert(shader.dxil != nullptr);
+                if (shader.dxil == nullptr || *(reinterpret_cast<uint32_t*>(shader.dxil->GetBufferPointer()) + 1) == 0)
+                {
+                    fmt::println("Failed to compile DXIL for shader with hash 0x{:X}", hashShaderPair.first);
+                    return;
+                }
 #endif
 
                 IDxcBlob* spirv = dxcCompiler.compile(recompiler.out, recompiler.isPixelShader, false, true);
-                assert(spirv != nullptr);
+                if (spirv == nullptr)
+                {
+                    fmt::println("Failed to compile SPIRV for shader with hash 0x{:X}", hashShaderPair.first);
+                    return;
+                }
 
                 bool result = smolv::Encode(spirv->GetBufferPointer(), spirv->GetBufferSize(), shader.spirv, smolv::kEncodeFlagStripDebugInfo);
-                assert(result);
+                if (!result)
+                {
+                    fmt::println("Failed to encode SPIRV for shader with hash 0x{:X}", hashShaderPair.first);
+                }
 
                 spirv->Release();
 
